@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Frieza Character Edit</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -126,16 +128,27 @@ const low=document.createElement('canvas'), lctx=low.getContext('2d');
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const S={ ang:0, angT:0, vel:0, zoom:1, zoomT:1, res:'hd', spin:false, breathe:true, floor:true,
   jump:-1, sq:0, sqv:0, tilt:0, tiltv:0, wasAir:false, dragging:false, t:0 };
+/* Decode each atlas once, up front, into a GPU-ready bitmap. Drawing straight from an <img> lets the
+   browser drop the decoded pixels and re-decode the 2700x2160 JPEG mid-turn, which is the stutter. */
 const imgs=[]; let loaded=0;
-ATLAS.forEach((src,i)=>{ const im=new Image(); im.onload=()=>{ if(++loaded===ATLAS.length) $('#loading').remove(); }; im.src=src; imgs[i]=im; });
+const ready=i=>!!imgs[i];
+ATLAS.forEach((src,i)=>{
+  const im=new Image(); im.src=src;
+  im.decode()
+    .then(()=>window.createImageBitmap ? createImageBitmap(im).catch(()=>im) : im)
+    .then(bm=>{ imgs[i]=bm; if(++loaded===ATLAS.length) $('#loading')?.remove(); })
+    .catch(()=>{ $('#loading').textContent='Could not load the model. Reload the page to try again.'; });
+});
 
 let W=640,H=480,scale=1;
 function resize(){
   const r=vp.getBoundingClientRect(); if(!r.width) return;
   const dpr=Math.min(window.devicePixelRatio||1,2);
-  if(S.res==='hd'){ W=Math.round(r.width*dpr); H=Math.round(r.height*dpr); cv.classList.remove('px'); }
-  else { H=+S.res; W=Math.round(H*r.width/r.height); cv.classList.add('px'); }
-  cv.width=W; cv.height=H; $('#sRes').textContent=W+'x'+H;
+  let w,h;
+  if(S.res==='hd'){ w=Math.round(r.width*dpr); h=Math.round(r.height*dpr); cv.classList.remove('px'); }
+  else { h=+S.res; w=Math.round(h*r.width/r.height); cv.classList.add('px'); }
+  if(w===W && h===H && cv.width===W) return;   // resizing a canvas clears it and reallocates; skip when unchanged
+  W=w; H=h; cv.width=W; cv.height=H; $('#sRes').textContent=W+'x'+H;
 }
 new ResizeObserver(resize).observe(vp);
 
@@ -215,8 +228,9 @@ function draw(jy){
   if(S.floor){ const s=1-jy*0.35, g=out.createRadialGradient(gx,gy,2,gx,gy,W*0.3*s*S.zoom);
     g.addColorStop(0,'rgba(120,128,140,.30)'); g.addColorStop(0.5,'rgba(70,76,86,.12)'); g.addColorStop(1,'rgba(0,0,0,0)');
     out.save(); out.translate(gx,gy); out.scale(1,0.18); out.translate(-gx,-gy); out.fillStyle=g; out.fillRect(0,gy-W,W,2*W); out.restore(); }
-  if(loaded===ATLAS.length){
-    const s=slot(), im=imgs[(s/PER)|0], j=s%PER, sx=(j%COLS)*FW, sy=((j/COLS)|0)*FH;
+  const s=slot(), ai=(s/PER)|0;
+  if(ready(ai)){
+    const im=imgs[ai], j=s%PER, sx=(j%COLS)*FW, sy=((j/COLS)|0)*FH;
     const breath = S.breathe ? 1+0.006*Math.sin(S.t*1.8) : 1;
     out.save();
     out.globalCompositeOperation='lighter';      // the frames are on black, so additive drawing drops the background
